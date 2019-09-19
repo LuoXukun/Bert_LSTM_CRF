@@ -1,0 +1,4 @@
+我	O
+感	DISEASE_B
+冒	DISEASE_I
+了	O

@@ -7,11 +7,12 @@ class BilstmEncoder(nn.Module):
     def __init__(self, args):
         super(BilstmEncoder, self).__init__()
 
-        assert args.hidden_size % 2 == 0 
+        assert args.hidden_size % 2 == 0
+        # 首先除以二，双向输出时concat之后变为hidden_size 
         self.hidden_size= args.hidden_size // 2
-        
+        # 网络层数
         self.layers_num = args.layers_num
-
+        # 前向网络与后向网络是一样的
         self.rnn_forward = nn.LSTM(input_size=args.emb_size,
                            hidden_size=self.hidden_size,
                            num_layers=args.layers_num,
@@ -23,7 +24,7 @@ class BilstmEncoder(nn.Module):
                            num_layers=args.layers_num,
                            dropout=args.dropout,
                            batch_first=True)
-
+        # dropout自己设
         self.drop = nn.Dropout(args.dropout)
 
     def forward(self, emb, seg):
@@ -41,6 +42,7 @@ class BilstmEncoder(nn.Module):
 
         return torch.cat([output_forward, output_backward], 2)
 
+    # 初始化隐状态
     def init_hidden(self, batch_size, device):
         return (torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device),
                 torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device))
