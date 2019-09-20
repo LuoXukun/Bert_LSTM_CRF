@@ -183,11 +183,16 @@ def main():
     args.good_pairs = []
     for key1, value1 in labels_map.items():
         key1 = key1.strip().split('-')
-        if len(key1) != 2: 
-            continue
+        if len(key1) < 1 or len(key1) > 2:
+            print("Error label: ", key1)
+            exit()
         for key2, value2 in labels_map.items():
             key2 = key2.strip().split('-')
-            if len(key2) != 2:
+            if len(key2) == 1:
+                continue
+            if len(key1) == 1 and len(key2) == 2:
+                if key2[0] == 'I':
+                    args.bad_pairs.append([value1, value2])
                 continue
             # p(B-X -> I-Y) = 0
             if key1[1] != key2[1] and key1[0] == 'B' and key2[0] == 'I':
