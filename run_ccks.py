@@ -43,7 +43,8 @@ class CCKSTagger(nn.Module):
         self.crf = CRF(target_size=self.labels_num,
                         average_batch=True,
                         use_cuda=args.use_cuda,
-                        bad_pairs=args.bad_pairs)
+                        bad_pairs=args.bad_pairs,
+                        good_pairs=args.good_pairs)
         self.linear = nn.Linear(self.lstm_hidden*2, self.labels_num+2)
         #self.droplayer = nn.Dropout(p=args.dropout)
         self.droplayer = nn.Dropout(p=args.lstm_dropout)
@@ -179,7 +180,7 @@ def main():
 
     # Create the bad pairs
     args.bad_pairs = []
-    # args.good_pairs = []
+    args.good_pairs = []
     for key1, value1 in labels_map.items():
         key1 = key1.strip().split('-')
         if len(key1) != 2: 
@@ -195,11 +196,11 @@ def main():
             if key1[1] != key2[1] and key1[0] == 'I' and key2[0] == 'I':
                 args.bad_pairs.append([value1, value2])
             # p(B-X -> I-X) = 10
-            """ if key1[1] == key2[1] and key1[0] == 'B' and key2[0] == 'I':
-                args.good_pairs.append([value1, value2]) """
+            if key1[1] == key2[1] and key1[0] == 'B' and key2[0] == 'I':
+                args.good_pairs.append([value1, value2])
     
     print("Bad pairs: ", args.bad_pairs)
-    # print("Good pairs: ", args.good_pairs)
+    print("Good pairs: ", args.good_pairs)
 
     # Load vocabulary.
     vocab = Vocab()
@@ -454,6 +455,11 @@ def main():
     model.load_state_dict(torch.load(args.output_model_path))
 
     evaluate(args, True)
+
+    """
+    args.lstm_hidden
+    args.lstm_layers
+    args.use_cuda """
 
 if __name__ == "__main__":
     main()
