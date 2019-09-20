@@ -43,7 +43,8 @@ class CCKSTagger(nn.Module):
         self.crf = CRF(target_size=self.labels_num,
                         average_batch=True,
                         use_cuda=args.use_cuda,
-                        bad_pairs=args.bad_pairs)
+                        bad_pairs=args.bad_pairs,
+                        good_pairs=args.good_pairs)
         self.linear = nn.Linear(self.lstm_hidden*2, self.labels_num+2)
         #self.droplayer = nn.Dropout(p=args.dropout)
         self.droplayer = nn.Dropout(p=args.lstm_dropout)
@@ -105,6 +106,8 @@ def main():
     # Path options.
     parser.add_argument("--pretrained_model_path", default=None, type=str,
                         help="Path of the pretrained model.")
+    parser.add_argument("--testing_model_path", default=None, type=str,
+                        help="Path of the testing model.")
     parser.add_argument("--output_model_path", default="./models/tagger_model.bin", type=str,
                         help="Path of the output model.")
     parser.add_argument("--vocab_path", default="./models/google_vocab.txt", type=str,
@@ -163,6 +166,7 @@ def main():
 
     # Find tagging labels.
     labels_map = {"NULL": 0, "O": 1} # ID for padding and non-entity.
+    labels_list = ["NULL", "O"]
     with open(args.train_path, mode="r", encoding="utf-8") as f:
         for line_id, line in enumerate(f):
             if line_id == 0:
@@ -172,14 +176,15 @@ def main():
                 continue
             if line[1] not in labels_map:
                 labels_map[line[1]] = len(labels_map)
+                labels_list.append(line[1])
 
-    print("Labels: ", labels_map)
-    print("Label Num: ", len(labels_map))
+    print("Label_map: ", labels_map)
+    print("Label_list: ", labels_list)
     args.labels_num = len(labels_map)
 
     # Create the bad pairs
     args.bad_pairs = []
-    # args.good_pairs = []
+    args.good_pairs = []
     for key1, value1 in labels_map.items():
         key1 = key1.strip().split('-')
         if len(key1) != 2: 
@@ -195,8 +200,8 @@ def main():
             if key1[1] != key2[1] and key1[0] == 'I' and key2[0] == 'I':
                 args.bad_pairs.append([value1, value2])
             # p(B-X -> I-X) = 10
-            """ if key1[1] == key2[1] and key1[0] == 'B' and key2[0] == 'I':
-                args.good_pairs.append([value1, value2]) """
+            if key1[1] == key2[1] and key1[0] == 'B' and key2[0] == 'I':
+                args.good_pairs.append([value1, value2])
     
     print("Bad pairs: ", args.bad_pairs)
     # print("Good pairs: ", args.good_pairs)
@@ -211,15 +216,14 @@ def main():
     args.target = "bert"
     model = build_model(args)
 
-    # Load or initialize parameters.
-    if args.pretrained_model_path is not None:
+    """ if args.pretrained_model_path is not None:
         # Initialize with pretrained model.
         model.load_state_dict(torch.load(args.pretrained_model_path), strict=False)  
     else:
         # Initialize with normal distribution.
         for n, p in list(model.named_parameters()):
             if 'gamma' not in n and 'beta' not in n:
-                p.data.normal_(0, 0.02)
+                p.data.normal_(0, 0.02) """
 
     # Some other parameters
     args.lstm_hidden = args.hidden_size
@@ -301,11 +305,6 @@ def main():
         instances_num = input_ids.size(0)
         batch_size = args.batch_size
 
-        if is_test:
-            print("Batch size: ", batch_size)
-            print("The number of test instances:", instances_num)
-
-    
         correct = 0
         gold_entities_num = 0
         pred_entities_num = 0
@@ -321,6 +320,7 @@ def main():
             # loss, _, pred, gold = model(input_ids_batch, label_ids_batch, mask_ids_batch)
             feats = model(input_ids_batch, label_ids_batch, mask_ids_batch)
             path_score, best_path = model.crf(feats, mask_ids_batch.byte())
+            word_id = input_ids_batch.contiguous().view(-1)
             pred = best_path.contiguous().view(-1)
             gold = label_ids_batch.contiguous().view(-1)
 
@@ -365,13 +365,34 @@ def main():
                         else:
                             end = pred.size()[0] - 1
                         pred_entities_pos.append((start, end))
+            
+            count = 1
 
             for entity in pred_entities_pos:
+                hit = True
                 if entity not in gold_entities_pos:
-                    continue
-                for j in range(entity[0], entity[1]+1):
-                    if gold[j].item() != pred[j].item():
-                        break
+                    hit = False
+                else:
+                    for j in range(entity[0], entity[1]+1):
+                        if gold[j].item() != pred[j].item():
+                            hit = False
+                            break
+                
+                if hit == False:
+                    word_list = 'Word_list: '
+                    pred_label_list = 'Pred_list: '
+                    gold_lable_list = 'Gold_list: '
+                    print('Count %d: \n', count)
+                    count += 1
+
+                    for pos in range(entity[0] - 3, entity[1] + 4):
+                        word_list = word_list + str(vocab.i2w[word_id[pos]]) + ' '
+                        pred_label_list = pred_label_list + str(labels_list[pred[pos]]) + ' '
+                        gold_lable_list = gold_lable_list + str(labels_list[gold[pos]]) + ' '
+                    
+                    print(word_list, '\n')
+                    print(pred_label_list, '\n')
+                    print(gold_lable_list, '\n')
                 else: 
                     correct += 1
 
@@ -382,78 +403,16 @@ def main():
         print("{:.3f}, {:.3f}, {:.3f}".format(p,r,f1))
 
         return f1
-    
-    # Training phase.
-    print("Start training.")
-    instances = read_dataset(args.train_path)
-
-    input_ids = torch.LongTensor([ins[0] for ins in instances])
-    label_ids = torch.LongTensor([ins[1] for ins in instances])
-    mask_ids = torch.LongTensor([ins[2] for ins in instances])
-
-    instances_num = input_ids.size(0)
-    batch_size = args.batch_size
-    train_steps = int(instances_num * args.epochs_num / batch_size) + 1
-
-    print("Batch size: ", batch_size)
-    print("The number of training instances:", instances_num)
-
-    param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'gamma', 'beta']
-    optimizer_grouped_parameters = [
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
-    ]
-    optimizer = BertAdam(optimizer_grouped_parameters, lr=args.learning_rate, warmup=args.warmup, t_total=train_steps)
-
-    total_loss = 0.
-    f1 = 0.0
-    best_f1 = 0.0
-
-    for epoch in range(1, args.epochs_num+1):
-        model.train()
-        for i, (input_ids_batch, label_ids_batch, mask_ids_batch) in enumerate(batch_loader(batch_size, input_ids, label_ids, mask_ids)):
-            model.zero_grad()
-
-            input_ids_batch = input_ids_batch.to(device)
-            label_ids_batch = label_ids_batch.to(device)
-            mask_ids_batch = mask_ids_batch.to(device)
-
-            """ loss, _, _, _ = model(input_ids_batch, label_ids_batch, mask_ids_batch)
-            if torch.cuda.device_count() > 1:
-                loss = torch.mean(loss)
-            total_loss += loss.item()
-            if (i + 1) % args.report_steps == 0:
-                print("Epoch id: {}, Training steps: {}, Avg loss: {:.3f}".format(epoch, i+1, total_loss / args.report_steps))
-                total_loss = 0. """
-            """ print("mask1:", mask_ids_batch)
-            print("label1:", label_ids_batch) """
-            feats = model(input_ids_batch, label_ids_batch, mask_ids_batch)
-            """ print("feats:", feats) """
-            loss = model.loss(feats, mask_ids_batch, label_ids_batch)
-            if (i + 1) % args.report_steps == 0:
-                print("Epoch id: {}, Training steps: {}, Loss: {:.3f}".format(epoch, i+1, loss))
-
-            loss.backward()
-            optimizer.step()
-
-        f1 = evaluate(args, False)
-        if f1 > best_f1:
-            best_f1 = f1
-            save_model(model, args.output_model_path)
-        #else:
-        #    break
 
     # Evaluation phase.
-    print("Start evaluation.")
+    print("Start testing.")
 
-    """ if torch.cuda.device_count() > 1:
-        model.module.load_state_dict(torch.load(args.output_model_path))
+    # Load the test model
+    if args.testing_model_path is not None:
+        model.load_state_dict(torch.load(args.testing_model_path))
+        evaluate(args, True)
     else:
-        model.load_state_dict(torch.load(args.output_model_path)) """
-    model.load_state_dict(torch.load(args.output_model_path))
-
-    evaluate(args, True)
+        print('Error: Cannot find the testing_model_path')
 
 if __name__ == "__main__":
     main()
