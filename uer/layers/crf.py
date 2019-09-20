@@ -21,7 +21,7 @@ class CRF(nn.Module):
             self.__setattr__(key, args[key])
 
         self.START_TAG_IDX, self.END_TAG_IDX = -2, -1
-        self.transitions = self.init_transitions()
+        self.transitions = nn.Parameter(self.init_transitions())
 
     """ 
         Init the CRF transitions.
@@ -48,6 +48,7 @@ class CRF(nn.Module):
         return transitions
     
     """
+        Get pred score
         Do the forward algorithm to compute the partition function (batched).
         Args:
             feats: size=(batch_size, seq_len, self.target_size+2)
@@ -179,6 +180,7 @@ class CRF(nn.Module):
         return path_score, best_path
 
     """
+        Get gold score
         Args:
             scores: size=(seq_len, batch_size, tag_size, tag_size)
             mask: size=(batch_size, seq_len)
